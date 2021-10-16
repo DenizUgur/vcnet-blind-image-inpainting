@@ -14,7 +14,7 @@ from torch.utils import data
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
-from datasets.graffiti_dataset.dataset import DatasetSample as sample_graffiti
+from datasets.graffiti_dataset.graffiti_dataset.dataset import DatasetSample as sample_graffiti
 
 from modeling.architecture import MPN, RIN, Discriminator
 from utils.data_utils import linear_scaling, linear_unscaling

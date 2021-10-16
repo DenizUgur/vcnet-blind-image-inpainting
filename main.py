@@ -32,7 +32,8 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     cfg = get_cfg_defaults()
-    # cfg.merge_from_file(args.base_cfg)
+    cfg.set_new_allowed(True)
+    cfg.merge_from_file(args.base_cfg)
     cfg.MODEL.IS_TRAIN = not args.test
     cfg.TRAIN.TUNE = args.tune
     # cfg.DATASET.NAME = args.dataset

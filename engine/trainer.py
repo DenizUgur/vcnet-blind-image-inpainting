@@ -14,6 +14,7 @@ from losses.consistency import SemanticConsistencyLoss, IDMRFLoss
 from losses.adversarial import compute_gradient_penalty
 from utils.mask_utils import MaskGenerator, ConfidenceDrivenMaskLayer, COLORS
 from utils.data_utils import linear_scaling, linear_unscaling, get_random_string, RaindropDataset
+from datasets.terrain import TerrainDataset
 
 # torch.autograd.set_detect_anomaly(True)
 
@@ -21,7 +22,7 @@ from utils.data_utils import linear_scaling, linear_unscaling, get_random_string
 class Trainer:
     def __init__(self, opt):
         self.opt = opt
-        assert self.opt.DATASET.NAME.lower() in ["ffhq", "places"]
+        assert self.opt.DATASET.NAME.lower() in ["ffhq", "places", "terrain"]
 
         self.model_name = "{}_{}".format(self.opt.MODEL.NAME, self.opt.DATASET.NAME) + \
                           "_{}step_{}bs".format(self.opt.TRAIN.NUM_TOTAL_STEP, self.opt.TRAIN.BATCH_SIZE) + \
@@ -34,24 +35,46 @@ class Trainer:
 
         self.transform = transforms.Compose([transforms.Resize(self.opt.DATASET.SIZE),
                                              transforms.RandomHorizontalFlip(),
-                                             transforms.ToTensor(),
+                                             # transforms.ToTensor(),
                                              # transforms.Normalize(self.opt.DATASET.MEAN, self.opt.DATASET.STD)
                                              ])
-        self.dataset = ImageFolder(root=self.opt.DATASET.ROOT, transform=self.transform)
-        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE, num_workers=self.opt.SYSTEM.NUM_WORKERS)
+
+        if self.opt.DATASET.NAME.lower() == "terrain":
+            self.dataset = TerrainDataset(self.opt.DATASET.ROOT, "train",
+                                            out_channels=self.opt.DATASET.NUM_CHANNELS,
+                                            patch_size=int(np.ceil(self.opt.DATASET.SIZE / 100)) * 10,
+                                            sample_size=self.opt.DATASET.SIZE,
+                                            observer_pad=self.opt.DATASET.SIZE // 4,
+                                            randomize=self.opt.TRAIN.SHUFFLE,
+                                            random_state=42,
+                                            transform=self.transform)
+        else:
+            self.dataset = ImageFolder(root=self.opt.DATASET.ROOT, transform=self.transform)
+
+        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS)
 
         self.imagenet_transform = transforms.Compose([transforms.RandomCrop(self.opt.DATASET.SIZE, pad_if_needed=True, padding_mode="reflect"),
                                                       transforms.RandomHorizontalFlip(),
-                                                      transforms.ToTensor(),
+                                                      # transforms.ToTensor(),
                                                       # transforms.Normalize(self.opt.DATASET.MEAN, self.opt.DATASET.STD)
                                                       ])
         if self.opt.DATASET.NAME.lower() == "ffhq":
             celeb_dataset = ImageFolder(root=self.opt.DATASET.CONT_ROOT, transform=self.transform)
             imagenet_dataset = ImageFolder(root=self.opt.DATASET.IMAGENET, transform=self.imagenet_transform)
             self.cont_dataset = torch.utils.data.ConcatDataset([celeb_dataset, imagenet_dataset])
+        elif self.opt.DATASET.NAME.lower() == "terrain":
+            self.cont_dataset = TerrainDataset(self.opt.DATASET.ROOT, "test",
+                                            out_channels=self.opt.DATASET.NUM_CHANNELS,
+                                            patch_size=int(np.ceil(self.opt.DATASET.SIZE / 100)) * 10,
+                                            sample_size=self.opt.DATASET.SIZE,
+                                            observer_pad=self.opt.DATASET.SIZE // 4,
+                                            randomize=self.opt.TRAIN.SHUFFLE,
+                                            random_state=42,
+                                            transform=self.imagenet_transform)
         else:
             self.cont_dataset = ImageFolder(root=self.opt.DATASET.CONT_ROOT, transform=self.imagenet_transform)
-        self.cont_image_loader = data.DataLoader(dataset=self.cont_dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE, num_workers=self.opt.SYSTEM.NUM_WORKERS)
+
+        self.cont_image_loader = data.DataLoader(dataset=self.cont_dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS)
         self.mask_generator = MaskGenerator(self.opt.MASK)
         self.mask_smoother = ConfidenceDrivenMaskLayer(self.opt.MASK.GAUS_K_SIZE, self.opt.MASK.SIGMA)
         # self.mask_smoother = GaussianSmoothing(1, 5, 1/40)
