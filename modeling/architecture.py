@@ -144,7 +144,7 @@ class Discriminator(BaseNetwork):
 
         # 4 convolutions of stride 2, i.e. halving of size everytime
         # So output size will be 8 * (img_size / 2 ^ 4) * (img_size / 2 ^ 4)
-        output_size = 8 * base_n_channels * 8 * 8
+        output_size = 8 * base_n_channels * 4 * 4
         self.features_to_prob = nn.Sequential(
             nn.Linear(output_size, 1)
         )
