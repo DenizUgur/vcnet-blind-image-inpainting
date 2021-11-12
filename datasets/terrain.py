@@ -345,6 +345,7 @@ class TerrainDataset(Dataset):
         adjusted = np.expand_dims(adjusted, axis=0)
         target = np.repeat(adjusted, self.out_channels, axis=0)
         target = torch.from_numpy(target).float()
+        target = self.transform(target)
 
         return target, mask
 
