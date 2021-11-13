@@ -1,0 +1,3 @@
+[submodule "datasets/graffiti_dataset"]
+	path = datasets/graffiti_dataset
+	url = https://github.com/pavelkraleu/graffiti-dataset.git
