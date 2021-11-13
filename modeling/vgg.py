@@ -6,8 +6,9 @@ import torchvision.models as models
 class VGG19FeatLayer(nn.Module):
     def __init__(self):
         super(VGG19FeatLayer, self).__init__()
-        self.vgg19 = models.vgg19(pretrained=True).features.eval().cuda()
-        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).cuda()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.vgg19 = models.vgg19(pretrained=True).features.eval().to(self.device)
+        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(self.device)
 
     def forward(self, x):
         out = {}

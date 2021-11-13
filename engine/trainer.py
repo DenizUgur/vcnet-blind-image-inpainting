@@ -22,6 +22,7 @@ from datasets.terrain import TerrainDataset
 class Trainer:
     def __init__(self, opt):
         self.opt = opt
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         assert self.opt.DATASET.NAME.lower() in ["ffhq", "places", "terrain"]
 
         self.model_name = "{}_{}".format(self.opt.MODEL.NAME, self.opt.DATASET.NAME) + \
@@ -99,10 +100,10 @@ class Trainer:
 
         self.check_and_use_multi_gpu()
 
-        self.weighted_bce_loss = WeightedBCELoss().cuda()
-        self.reconstruction_loss = torch.nn.L1Loss().cuda()
-        self.semantic_consistency_loss = SemanticConsistencyLoss().cuda()
-        self.texture_consistency_loss = IDMRFLoss().cuda()
+        self.weighted_bce_loss = WeightedBCELoss().to(self.device)
+        self.reconstruction_loss = torch.nn.L1Loss().to(self.device)
+        self.semantic_consistency_loss = SemanticConsistencyLoss().to(self.device)
+        self.texture_consistency_loss = IDMRFLoss().to(self.device)
 
     def run(self):
         while self.num_step < self.opt.TRAIN.NUM_TOTAL_STEP:
@@ -110,14 +111,14 @@ class Trainer:
             info = " [Step: {}/{} ({}%)] ".format(self.num_step, self.opt.TRAIN.NUM_TOTAL_STEP, 100 * self.num_step / self.opt.TRAIN.NUM_TOTAL_STEP)
 
             imgs, _ = next(iter(self.image_loader))
-            y_imgs = imgs.float().cuda()
-            imgs = linear_scaling(imgs.float().cuda())
+            y_imgs = imgs.float().to(self.device)
+            imgs = linear_scaling(imgs.float().to(self.device))
             batch_size, channels, h, w = imgs.size()
 
-            masks = torch.from_numpy(self.mask_generator.generate(h, w)).repeat([batch_size, 1, 1, 1]).float().cuda()
+            masks = torch.from_numpy(self.mask_generator.generate(h, w)).repeat([batch_size, 1, 1, 1]).float().to(self.device)
 
             cont_imgs, _ = next(iter(self.cont_image_loader))
-            cont_imgs = linear_scaling(cont_imgs.float().cuda())
+            cont_imgs = linear_scaling(cont_imgs.float().to(self.device))
             if cont_imgs.size(0) != imgs.size(0):
                 cont_imgs = cont_imgs[:imgs.size(0)]
 
@@ -251,18 +252,18 @@ class Trainer:
     def check_and_use_multi_gpu(self):
         if torch.cuda.device_count() > 1 and self.opt.SYSTEM.NUM_GPU > 1:
             log.info("Using {} GPUs...".format(torch.cuda.device_count()))
-            self.mpn = torch.nn.DataParallel(self.mpn).cuda()
-            self.rin = torch.nn.DataParallel(self.rin).cuda()
-            self.discriminator = torch.nn.DataParallel(self.discriminator).cuda()
-            self.patch_discriminator = torch.nn.DataParallel(self.patch_discriminator).cuda()
-            self.mask_smoother = torch.nn.DataParallel(self.mask_smoother).cuda()
+            self.mpn = torch.nn.DataParallel(self.mpn).to(self.device)
+            self.rin = torch.nn.DataParallel(self.rin).to(self.device)
+            self.discriminator = torch.nn.DataParallel(self.discriminator).to(self.device)
+            self.patch_discriminator = torch.nn.DataParallel(self.patch_discriminator).to(self.device)
+            self.mask_smoother = torch.nn.DataParallel(self.mask_smoother).to(self.device)
         else:
             log.info("GPU ID: {}".format(torch.cuda.current_device()))
-            self.mpn = self.mpn.cuda()
-            self.rin = self.rin.cuda()
-            self.discriminator = self.discriminator.cuda()
-            self.patch_discriminator = self.patch_discriminator.cuda()
-            self.mask_smoother = self.mask_smoother.cuda()
+            self.mpn = self.mpn.to(self.device)
+            self.rin = self.rin.to(self.device)
+            self.discriminator = self.discriminator.to(self.device)
+            self.patch_discriminator = self.patch_discriminator.to(self.device)
+            self.mask_smoother = self.mask_smoother.to(self.device)
 
     def do_checkpoint(self, num_step):
         if not os.path.exists("./{}/{}".format(self.opt.TRAIN.SAVE_DIR, self.model_name)):
@@ -308,24 +309,25 @@ class Trainer:
         for state in self.optimizer_mpn.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)
         for state in self.optimizer_rin.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)
         for state in self.optimizer_discriminator.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)
         for state in self.optimizer_joint.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)
 
 
 class RaindropTrainer(Trainer):
     def __init__(self, opt):
         self.opt = opt
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         assert self.opt.DATASET.NAME.lower() == "raindrop"
 
         self.model_name = "{}_{}".format(self.opt.MODEL.NAME, self.opt.DATASET.NAME) + \
@@ -360,9 +362,9 @@ class RaindropTrainer(Trainer):
 
         self.check_and_use_multi_gpu()
 
-        self.reconstruction_loss = torch.nn.L1Loss().cuda()
-        self.semantic_consistency_loss = SemanticConsistencyLoss().cuda()
-        self.texture_consistency_loss = IDMRFLoss().cuda()
+        self.reconstruction_loss = torch.nn.L1Loss().to(self.device)
+        self.semantic_consistency_loss = SemanticConsistencyLoss().to(self.device)
+        self.texture_consistency_loss = IDMRFLoss().to(self.device)
 
     def run(self):
         while self.num_step < self.opt.TRAIN.NUM_TOTAL_STEP:
@@ -370,8 +372,8 @@ class RaindropTrainer(Trainer):
             info = " [Step: {}/{} ({}%)] ".format(self.num_step, self.opt.TRAIN.NUM_TOTAL_STEP, 100 * self.num_step / self.opt.TRAIN.NUM_TOTAL_STEP)
 
             imgs, y_imgs = next(iter(self.image_loader))
-            imgs = linear_scaling(imgs.float().cuda())
-            y_imgs = y_imgs.float().cuda()
+            imgs = linear_scaling(imgs.float().to(self.device))
+            y_imgs = y_imgs.float().to(self.device)
 
             for _ in range(self.opt.MODEL.D.NUM_CRITICS):
                 self.optimizer_discriminator.zero_grad()
@@ -462,21 +464,21 @@ class RaindropTrainer(Trainer):
     def check_and_use_multi_gpu(self):
         if torch.cuda.device_count() > 1 and self.opt.SYSTEM.NUM_GPU > 1:
             log.info("Using {} GPUs...".format(torch.cuda.device_count()))
-            self.mpn = torch.nn.DataParallel(self.mpn).cuda()
-            self.rin = torch.nn.DataParallel(self.rin).cuda()
-            self.discriminator = torch.nn.DataParallel(self.discriminator).cuda()
+            self.mpn = torch.nn.DataParallel(self.mpn).to(self.device)
+            self.rin = torch.nn.DataParallel(self.rin).to(self.device)
+            self.discriminator = torch.nn.DataParallel(self.discriminator).to(self.device)
         else:
             log.info("GPU ID: {}".format(torch.cuda.current_device()))
-            self.mpn = self.mpn.cuda()
-            self.rin = self.rin.cuda()
-            self.discriminator = self.discriminator.cuda()
+            self.mpn = self.mpn.to(self.device)
+            self.rin = self.rin.to(self.device)
+            self.discriminator = self.discriminator.to(self.device)
 
     def optimizers_to_cuda(self):
         for state in self.optimizer_discriminator.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)
         for state in self.optimizer_joint.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
-                    state[k] = v.cuda()
+                    state[k] = v.to(self.device)

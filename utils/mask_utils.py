@@ -85,6 +85,7 @@ def gauss_kernel(size=21, sigma=3, inchannels=3, outchannels=3):
 class GaussianBlurLayer(nn.Module):
     def __init__(self, size, sigma, in_channels=1, stride=1, pad=1):
         super(GaussianBlurLayer, self).__init__()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.size = size
         self.sigma = sigma
         self.ch = in_channels
@@ -94,7 +95,7 @@ class GaussianBlurLayer(nn.Module):
     def forward(self, x):
         kernel = gauss_kernel(self.size, self.sigma, self.ch, self.ch)
         kernel_tensor = torch.from_numpy(kernel)
-        kernel_tensor = kernel_tensor.cuda()
+        kernel_tensor = kernel_tensor.to(self.device)
         x = self.pad(x)
         blurred = F.conv2d(x, kernel_tensor, stride=self.stride)
         return blurred
