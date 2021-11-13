@@ -258,7 +258,7 @@ class Trainer:
             self.patch_discriminator = torch.nn.DataParallel(self.patch_discriminator).to(self.device)
             self.mask_smoother = torch.nn.DataParallel(self.mask_smoother).to(self.device)
         else:
-            log.info("GPU ID: {}".format(torch.cuda.current_device()))
+            log.info("GPU ID: {}".format(torch.cuda.current_device() if torch.cuda.is_available() else "N/A"))
             self.mpn = self.mpn.to(self.device)
             self.rin = self.rin.to(self.device)
             self.discriminator = self.discriminator.to(self.device)
