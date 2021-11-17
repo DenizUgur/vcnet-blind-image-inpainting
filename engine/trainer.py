@@ -3,6 +3,7 @@ import torch
 import wandb
 import glog as log
 import numpy as np
+import matplotlib.pyplot as plt
 
 from torch.utils import data
 from torchvision import transforms
@@ -17,6 +18,16 @@ from utils.data_utils import linear_scaling, linear_unscaling, get_random_string
 from datasets.terrain import TerrainDataset
 
 # torch.autograd.set_detect_anomaly(True)
+
+class Helpers:
+
+    @staticmethod
+    def to_pil(_in, cmap=False):
+        if cmap:
+            cm = plt.get_cmap('terrain')
+            _in = torch.from_numpy(cm(_in.squeeze()))
+            _in = torch.transpose(_in, 0, 2)[:3]
+        return transforms.ToPILImage()(_in)
 
 
 class Trainer:
@@ -43,7 +54,7 @@ class Trainer:
         if self.opt.DATASET.NAME.lower() == "terrain":
             self.dataset = TerrainDataset(self.opt.DATASET.ROOT, "train",
                                             out_channels=self.opt.DATASET.NUM_CHANNELS,
-                                            patch_size=int(np.ceil(self.opt.DATASET.SIZE / 100)) * 10,
+                                            patch_size=int(np.ceil(self.opt.DATASET.SIZE / 10)),
                                             sample_size=self.opt.DATASET.SIZE,
                                             observer_pad=self.opt.DATASET.SIZE // 4,
                                             randomize=self.opt.TRAIN.SHUFFLE,
@@ -54,33 +65,9 @@ class Trainer:
 
         self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS)
 
-        self.imagenet_transform = transforms.Compose([transforms.RandomCrop(self.opt.DATASET.SIZE, pad_if_needed=True, padding_mode="reflect"),
-                                                      transforms.RandomHorizontalFlip(),
-                                                      # transforms.ToTensor(),
-                                                      # transforms.Normalize(self.opt.DATASET.MEAN, self.opt.DATASET.STD)
-                                                      ])
-        if self.opt.DATASET.NAME.lower() == "ffhq":
-            celeb_dataset = ImageFolder(root=self.opt.DATASET.CONT_ROOT, transform=self.transform)
-            imagenet_dataset = ImageFolder(root=self.opt.DATASET.IMAGENET, transform=self.imagenet_transform)
-            self.cont_dataset = torch.utils.data.ConcatDataset([celeb_dataset, imagenet_dataset])
-        elif self.opt.DATASET.NAME.lower() == "terrain":
-            self.cont_dataset = TerrainDataset(self.opt.DATASET.ROOT, "test",
-                                            out_channels=self.opt.DATASET.NUM_CHANNELS,
-                                            patch_size=int(np.ceil(self.opt.DATASET.SIZE / 100)) * 10,
-                                            sample_size=self.opt.DATASET.SIZE,
-                                            observer_pad=self.opt.DATASET.SIZE // 4,
-                                            randomize=self.opt.TRAIN.SHUFFLE,
-                                            random_state=42,
-                                            transform=self.imagenet_transform)
-        else:
-            self.cont_dataset = ImageFolder(root=self.opt.DATASET.CONT_ROOT, transform=self.imagenet_transform)
-
-        self.cont_image_loader = data.DataLoader(dataset=self.cont_dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS)
         self.mask_generator = MaskGenerator(self.opt.MASK)
         self.mask_smoother = ConfidenceDrivenMaskLayer(self.opt.MASK.GAUS_K_SIZE, self.opt.MASK.SIGMA)
         # self.mask_smoother = GaussianSmoothing(1, 5, 1/40)
-
-        self.to_pil = transforms.ToPILImage()
 
         self.mpn = MPN(base_n_channels=self.opt.MODEL.MPN.NUM_CHANNELS, neck_n_channels=self.opt.MODEL.MPN.NECK_CHANNELS)
         self.rin = RIN(base_n_channels=self.opt.MODEL.RIN.NUM_CHANNELS, neck_n_channels=self.opt.MODEL.MPN.NECK_CHANNELS)
@@ -117,10 +104,8 @@ class Trainer:
 
             masks = torch.from_numpy(self.mask_generator.generate(h, w)).repeat([batch_size, 1, 1, 1]).float().to(self.device)
 
-            cont_imgs, _ = next(iter(self.cont_image_loader))
+            cont_imgs = torch.zeros_like(imgs)
             cont_imgs = linear_scaling(cont_imgs.float().to(self.device))
-            if cont_imgs.size(0) != imgs.size(0):
-                cont_imgs = cont_imgs[:imgs.size(0)]
 
             smooth_masks = self.mask_smoother(1 - masks) + masks
             smooth_masks = torch.clamp(smooth_masks, min=0., max=1.)
@@ -141,13 +126,12 @@ class Trainer:
             if self.num_step % self.opt.TRAIN.VISUALIZE_INTERVAL == 0:
                 idx = self.opt.WANDB.NUM_ROW
                 self.wandb.log({"examples": [
-                    self.wandb.Image(self.to_pil(y_imgs[idx].cpu()), caption="original_image"),
-                    self.wandb.Image(self.to_pil(linear_unscaling(cont_imgs[idx]).cpu()), caption="contaminant_image"),
-                    self.wandb.Image(self.to_pil(linear_unscaling(masked_imgs[idx]).cpu()), caption="masked_image"),
-                    self.wandb.Image(self.to_pil(masks[idx].cpu()), caption="original_masks"),
-                    self.wandb.Image(self.to_pil(smooth_masks[idx].cpu()), caption="smoothed_masks"),
-                    self.wandb.Image(self.to_pil(pred_masks[idx].cpu()), caption="predicted_masks"),
-                    self.wandb.Image(self.to_pil(torch.clamp(output, min=0., max=1.)[idx].cpu()), caption="output")
+                    self.wandb.Image(Helpers.to_pil(y_imgs[idx].cpu(), cmap=True), caption="original_image"),
+                    self.wandb.Image(Helpers.to_pil(linear_unscaling(masked_imgs[idx]).cpu(), cmap=True), caption="masked_image"),
+                    self.wandb.Image(Helpers.to_pil(masks[idx].cpu()), caption="original_masks"),
+                    self.wandb.Image(Helpers.to_pil(smooth_masks[idx].cpu()), caption="smoothed_masks"),
+                    self.wandb.Image(Helpers.to_pil(pred_masks[idx].cpu()), caption="predicted_masks"),
+                    self.wandb.Image(Helpers.to_pil(torch.clamp(output, min=0., max=1.)[idx].cpu(), cmap=True), caption="output")
                 ]}, commit=False)
             self.wandb.log({})
             if self.num_step % self.opt.TRAIN.SAVE_INTERVAL == 0 and self.num_step != 0:
@@ -346,8 +330,6 @@ class RaindropTrainer(Trainer):
         self.dataset = RaindropDataset(root=self.opt.DATASET.RAINDROP_ROOT, transform=self.transform, target_transform=self.transform)
         self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE, num_workers=self.opt.SYSTEM.NUM_WORKERS)
 
-        self.to_pil = transforms.ToPILImage()
-
         self.mpn = MPN(base_n_channels=self.opt.MODEL.MPN.NUM_CHANNELS, neck_n_channels=self.opt.MODEL.MPN.NECK_CHANNELS)
         self.rin = RIN(base_n_channels=self.opt.MODEL.RIN.NUM_CHANNELS, neck_n_channels=self.opt.MODEL.MPN.NECK_CHANNELS)
         self.discriminator = Discriminator(base_n_channels=self.opt.MODEL.D.NUM_CHANNELS)
@@ -426,10 +408,10 @@ class RaindropTrainer(Trainer):
             if self.num_step % self.opt.MODEL.RAINDROP_VISUALIZE_INTERVAL == 0:
                 idx = self.opt.WANDB.NUM_ROW
                 self.wandb.log({"examples": [
-                    self.wandb.Image(self.to_pil(y_imgs[idx].cpu()), caption="original_image"),
-                    self.wandb.Image(self.to_pil(linear_unscaling(imgs[idx]).cpu()), caption="masked_image"),
-                    self.wandb.Image(self.to_pil(pred_masks[idx].cpu()), caption="predicted_masks"),
-                    self.wandb.Image(self.to_pil(torch.clamp(output, min=0., max=1.)[idx].cpu()), caption="output")
+                    self.wandb.Image(Helpers.to_pil(y_imgs[idx].cpu(), cmap=True), caption="original_image"),
+                    self.wandb.Image(Helpers.to_pil(linear_unscaling(imgs[idx]).cpu(), cmap=True), caption="masked_image"),
+                    self.wandb.Image(Helpers.to_pil(pred_masks[idx].cpu()), caption="predicted_masks"),
+                    self.wandb.Image(Helpers.to_pil(torch.clamp(output, min=0., max=1.)[idx].cpu(), cmap=True), caption="output")
                 ]}, commit=False)
             self.wandb.log({})
             if self.num_step % self.opt.MODEL.RAINDROP_SAVE_INTERVAL == 0 and self.num_step != 0:
