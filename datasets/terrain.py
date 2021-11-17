@@ -251,10 +251,7 @@ class TerrainDataset(Dataset):
         # * Build dataset dictionary
         cache_name = os.path.dirname(__file__)
         cache_name += "/tmp/TDSDATA-"
-        cache_name += (
-            f"DT{self.dataset_type}-RS{self.random_state}-IS{self.sample_size}-"
-        )
-        cache_name += hashlib.md5(("".join(sorted(self.files))).encode()).hexdigest()
+        cache_name += hashlib.md5(str(self.__dict__).encode()).hexdigest()
 
         if os.path.exists(cache_name):
             self.sample_dict = pickle.load(open(cache_name, "rb"))
