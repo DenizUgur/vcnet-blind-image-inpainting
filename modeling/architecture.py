@@ -12,7 +12,7 @@ class MPN(BaseNetwork):
         super(MPN, self).__init__()
         assert base_n_channels >= 4, "Base num channels should be at least 4"
         assert neck_n_channels >= 16, "Neck num channels should be at least 16"
-        self.rb1 = ResBlock(channels_in=3, channels_out=base_n_channels, kernel_size=5, stride=2, padding=2, dilation=1)
+        self.rb1 = ResBlock(channels_in=1, channels_out=base_n_channels, kernel_size=5, stride=2, padding=2, dilation=1)
         self.rb2 = ResBlock(channels_in=base_n_channels, channels_out=base_n_channels * 2, kernel_size=3, stride=2)
         self.rb3 = ResBlock(channels_in=base_n_channels * 2, channels_out=base_n_channels * 2, kernel_size=3, stride=1, padding=2, dilation=2)
         self.rb4 = ResBlock(channels_in=base_n_channels * 2, channels_out=neck_n_channels, kernel_size=3, stride=1, padding=4, dilation=4)
@@ -52,7 +52,7 @@ class RIN(BaseNetwork):
         super(RIN, self).__init__()
         assert base_n_channels >= 8, "Base num channels should be at least 8"
         assert neck_n_channels >= 32, "Neck num channels should be at least 32"
-        self.pc1 = PCBlock(channels_in=3, channels_out=base_n_channels, kernel_size=5, stride=1, padding=2)
+        self.pc1 = PCBlock(channels_in=1, channels_out=base_n_channels, kernel_size=5, stride=1, padding=2)
         self.pc2 = PCBlock(channels_in=base_n_channels, channels_out=base_n_channels * 2, kernel_size=3, stride=2, padding=1)
         self.pc3 = PCBlock(channels_in=base_n_channels * 2, channels_out=base_n_channels * 2, kernel_size=3, stride=1, padding=1)
         self.pc4 = PCBlock(channels_in=base_n_channels * 2, channels_out=base_n_channels * 4, kernel_size=3, stride=2, padding=1)
@@ -70,7 +70,7 @@ class RIN(BaseNetwork):
         self.pc13 = PCBlock(channels_in=base_n_channels * 2, channels_out=base_n_channels, kernel_size=3, stride=1, padding=1)
         self.pc14 = PCBlock(channels_in=base_n_channels, channels_out=base_n_channels, kernel_size=3, stride=1, padding=1)
 
-        self.conv1 = nn.Conv2d(base_n_channels, 3, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(base_n_channels, 1, kernel_size=3, stride=1, padding=1)
         self.init_weights(init_type="normal", gain=0.02)
 
     def forward(self, x, m, n):
@@ -130,7 +130,7 @@ class Discriminator(BaseNetwork):
         super(Discriminator, self).__init__()
 
         self.image_to_features = nn.Sequential(
-            spectral_norm(nn.Conv2d(3, base_n_channels, 5, 2, 2)),
+            spectral_norm(nn.Conv2d(1, base_n_channels, 5, 2, 2)),
             nn.LeakyReLU(0.2, inplace=True),
             spectral_norm(nn.Conv2d(base_n_channels, 2 * base_n_channels, 5, 2, 2)),
             nn.LeakyReLU(0.2, inplace=True),

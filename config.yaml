@@ -10,7 +10,7 @@ DATASET:
   NAME: TERRAIN
   ROOT: ./datasets/data/*.tif
   SIZE: 128
-  NUM_CHANNELS: 3
+  NUM_CHANNELS: 1
   STD:
   - 0.5
   - 0.5
