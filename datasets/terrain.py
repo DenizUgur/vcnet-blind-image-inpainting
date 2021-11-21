@@ -10,8 +10,8 @@ from glob import glob
 from tqdm import tqdm
 from scipy import stats
 from scipy.ndimage import zoom
-from torch.utils.data import Dataset
 from skimage.draw import rectangle_perimeter, line
+from torch.utils.data.dataset import IterableDataset
 
 
 class Viewshed:
@@ -183,7 +183,7 @@ class Helper:
         return zax, np.nanmedian(zax.reshape(-1, SH ** 2), axis=1)
 
 
-class TerrainDataset(Dataset):
+class TerrainDataset(IterableDataset):
     NAN = 0
 
     def __init__(
@@ -198,7 +198,7 @@ class TerrainDataset(Dataset):
         block_variance=1,
         observer_height=0.75,
         limit_samples=None,
-        randomize=True,
+        randomize=False,
         random_state=None,
         usable_portion=0.8,
         no_tqdm=False,
@@ -221,6 +221,7 @@ class TerrainDataset(Dataset):
         no_tqdm -> Disable tqdm progress
         transform -> if there is any, PyTorch Transforms
         """
+        super(TerrainDataset).__init__()
         np.seterr(divide="ignore", invalid="ignore")
 
         # * Set Dataset attributes
@@ -242,15 +243,14 @@ class TerrainDataset(Dataset):
 
         self.randomize = randomize
         self.random_state = (
-            random.randint(0, 100) if random_state is None else random_state
+            random.randint(0, 100) if random_state is None and randomize else 42
         )
         if self.randomize:
             random.seed(self.random_state)
             random.shuffle(self.files)
 
         # * Build dataset dictionary
-        cache_name = os.path.dirname(__file__)
-        cache_name += "/tmp/TDSDATA-"
+        cache_name = "/tmp/TDSDATA-"
         cache_name += hashlib.md5(str(self.__dict__).encode()).hexdigest()
 
         if os.path.exists(cache_name):
@@ -308,6 +308,7 @@ class TerrainDataset(Dataset):
         # * Dataset state
         self.current_file = None
         self.current_blocks = None
+        self.current_index = None
 
     def get_len(self):
         key = list(self.sample_dict.keys())[-1]
@@ -317,6 +318,26 @@ class TerrainDataset(Dataset):
         if not self.limit_samples is None:
             return self.limit_samples
         return self.get_len()
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            self.iter_start = 0
+            self.iter_end = self.get_len()
+        else:
+            per_worker = int(math.ceil(self.get_len() / float(worker_info.num_workers)))
+            self.iter_start = worker_info.id * per_worker
+            self.iter_end = self.iter_start + per_worker
+
+        self.current_index = self.iter_start
+        return self
+
+    def __next__(self):
+        if self.current_index >= self.iter_end:
+            raise StopIteration
+        x = self.__getitem__(self.current_index)
+        self.current_index += 1
+        return x
 
     def __getitem__(self, idx):
         rel_idx = None
@@ -342,7 +363,9 @@ class TerrainDataset(Dataset):
         adjusted = np.expand_dims(adjusted, axis=0)
         target = np.repeat(adjusted, self.out_channels, axis=0)
         target = torch.from_numpy(target).float()
-        target = self.transform(target)
+
+        if self.transform:
+            target = self.transform(target)
 
         return target, mask
 

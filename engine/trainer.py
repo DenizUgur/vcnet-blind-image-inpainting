@@ -27,6 +27,7 @@ class Helpers:
             cm = plt.get_cmap('terrain')
             _in = torch.from_numpy(cm(_in.squeeze()))
             _in = torch.transpose(_in, 0, 2)[:3]
+            _in = torch.transpose(_in, 1, 2)
         return transforms.ToPILImage()(_in)
 
 
@@ -63,7 +64,7 @@ class Trainer:
         else:
             self.dataset = ImageFolder(root=self.opt.DATASET.ROOT, transform=self.transform)
 
-        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS)
+        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS, pin_memory=True, drop_last=True)
 
         self.mask_generator = MaskGenerator(self.opt.MASK)
         self.mask_smoother = ConfidenceDrivenMaskLayer(self.opt.MASK.GAUS_K_SIZE, self.opt.MASK.SIGMA)
@@ -93,11 +94,12 @@ class Trainer:
         self.texture_consistency_loss = IDMRFLoss().to(self.device)
 
     def run(self):
+        data_iterator = iter(self.image_loader)
         while self.num_step < self.opt.TRAIN.NUM_TOTAL_STEP:
             self.num_step += 1
             info = " [Step: {}/{} ({}%)] ".format(self.num_step, self.opt.TRAIN.NUM_TOTAL_STEP, 100 * self.num_step / self.opt.TRAIN.NUM_TOTAL_STEP)
 
-            imgs, _ = next(iter(self.image_loader))
+            imgs, _ = next(data_iterator)
             y_imgs = imgs.float().to(self.device)
             imgs = linear_scaling(imgs.float().to(self.device))
             batch_size, channels, h, w = imgs.size()
