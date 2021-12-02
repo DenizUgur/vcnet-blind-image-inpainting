@@ -195,6 +195,7 @@ class TerrainDataset(IterableDataset):
         observer_pad=32,
         block_dimension=1,
         out_channels=1,
+        normalize=True,
         block_variance=1,
         observer_height=0.75,
         limit_samples=None,
@@ -212,6 +213,7 @@ class TerrainDataset(IterableDataset):
         observer_pad -> n pixels to pad before getting a random observer
         block_dimension -> Number of masks (motion step) for each submap
         out_channels -> Number of channels to be available on the output of __getitem__
+        normalize -> Divide each item to data range for normalized samples
         block_variance -> how many different observer points
         observer_height -> Observer Height
         limit_samples -> Limit number of samples returned
@@ -231,6 +233,7 @@ class TerrainDataset(IterableDataset):
         self.observer_pad = observer_pad
         self.block_dimension = block_dimension
         self.out_channels = out_channels
+        self.normalize = normalize
 
         # * PyTorch Related Variables
         self.transform = transform
@@ -328,8 +331,11 @@ class TerrainDataset(IterableDataset):
             per_worker = int(math.ceil(self.get_len() / float(worker_info.num_workers)))
             self.iter_start = worker_info.id * per_worker
             self.iter_end = self.iter_start + per_worker
-
         self.current_index = self.iter_start
+
+        # Get the first item so that worker is completely ready
+        self.__getitem__(self.iter_start)
+
         return self
 
     def __next__(self):
@@ -352,7 +358,9 @@ class TerrainDataset(IterableDataset):
 
         current = np.copy(self.current_blocks[rel_idx])
         current -= np.min(current)
-        current /= self.data_range
+
+        if self.normalize:
+            current /= self.data_range
 
         adjusted = self.get_adjusted(current)
         viewshed = self.viewshed(adjusted)
