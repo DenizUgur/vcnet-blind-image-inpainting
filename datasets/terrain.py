@@ -2,7 +2,6 @@ import os
 import math
 import torch
 import random
-import pickle
 import hashlib
 import rasterio
 import numpy as np
@@ -11,7 +10,7 @@ from tqdm import tqdm
 from scipy import stats
 from scipy.ndimage import zoom
 from skimage.draw import rectangle_perimeter, line
-from torch.utils.data.dataset import IterableDataset
+from torch.utils.data.dataset import Dataset
 
 
 class Viewshed:
@@ -183,7 +182,7 @@ class Helper:
         return zax, np.nanmedian(zax.reshape(-1, SH ** 2), axis=1)
 
 
-class TerrainDataset(IterableDataset):
+class TerrainDataset(Dataset):
     NAN = 0
 
     def __init__(
@@ -195,10 +194,10 @@ class TerrainDataset(IterableDataset):
         observer_pad=32,
         block_dimension=1,
         out_channels=1,
+        return_masks=True,
         normalize=True,
         block_variance=1,
         observer_height=0.75,
-        limit_samples=None,
         randomize=False,
         random_state=None,
         usable_portion=0.8,
@@ -213,10 +212,10 @@ class TerrainDataset(IterableDataset):
         observer_pad -> n pixels to pad before getting a random observer
         block_dimension -> Number of masks (motion step) for each submap
         out_channels -> Number of channels to be available on the output of __getitem__
+        return_masks -> __getitem__ returns masks as well
         normalize -> Divide each item to data range for normalized samples
         block_variance -> how many different observer points
         observer_height -> Observer Height
-        limit_samples -> Limit number of samples returned
         randomize -> predictable randomize
         random_state -> a value that gets added to seed
         usable_portion -> What % of the data will be used
@@ -233,6 +232,7 @@ class TerrainDataset(IterableDataset):
         self.observer_pad = observer_pad
         self.block_dimension = block_dimension
         self.out_channels = out_channels
+        self.return_masks = return_masks
         self.normalize = normalize
 
         # * PyTorch Related Variables
@@ -242,7 +242,6 @@ class TerrainDataset(IterableDataset):
         self.files = glob(dataset_glob)
         self.dataset_type = dataset_type
         self.usable_portion = usable_portion
-        self.limit_samples = limit_samples
 
         self.randomize = randomize
         self.random_state = (
@@ -256,11 +255,10 @@ class TerrainDataset(IterableDataset):
         cache_name = "/tmp/TDSDATA-"
         cache_name += hashlib.md5(str(self.__dict__).encode()).hexdigest()
 
-        if os.path.exists(cache_name):
-            self.sample_dict = pickle.load(open(cache_name, "rb"))
+        if os.path.exists(f"{cache_name}.npy"):
+            self.samples = np.load(f"{cache_name}.npy")
         else:
-            self.sample_dict = dict()
-            start = 0
+            self.samples = None
             for file in tqdm(self.files, ncols=100, disable=no_tqdm):
                 blocks, mask = self.get_blocks(file, return_mask=True)
 
@@ -268,37 +266,23 @@ class TerrainDataset(IterableDataset):
                     print(f"Skipped file {file}")
                     continue
 
-                self.sample_dict[file] = {
-                    "start": start,
-                    "end": start + len(blocks[mask]),
-                    "mask": mask,
-                    "min": np.min(blocks[mask]),
-                    "max": np.max(blocks[mask]),
-                    "range": np.max(Helper.get_ranges(blocks[mask])),
-                }
-                start += len(blocks[mask])
-                del blocks
+                if self.samples is None:
+                    self.samples = blocks[mask]
+                else:
+                    self.samples = np.concatenate((self.samples, blocks[mask]), axis=0)
 
-            pickle.dump(self.sample_dict, open(cache_name, "wb"))
+            np.save(cache_name, self.samples)
 
-        self.data_min = min(self.sample_dict.values(), key=lambda x: x["min"])["min"]
-        self.data_max = max(self.sample_dict.values(), key=lambda x: x["max"])["max"]
-        self.data_range = max(self.sample_dict.values(), key=lambda x: x["range"])[
-            "range"
-        ]
-
-        # * Check if limit_samples is enough for this dataset
-        if limit_samples is not None:
-            assert (
-                limit_samples <= self.get_len()
-            ), "limit_samples cannot be bigger than dataset size"
+        self.data_min = np.min(self.samples)
+        self.data_max = np.max(self.samples)
+        self.data_range = np.max(Helper.get_ranges(self.samples))
 
         # * Report dataset attributes
         print("### TerrainDataset ###")
         print("Minimum height: ", self.data_min)
         print("Maximum height: ", self.data_max)
         print("Height range: ", self.data_range)
-        print("Count: ", self.get_len())
+        print("Count: ", len(self.samples))
 
         # * Viewshed Engine
         self.viewshed = Viewshed(
@@ -309,33 +293,24 @@ class TerrainDataset(IterableDataset):
         )
 
         # * Dataset state
-        self.current_file = None
-        self.current_blocks = None
         self.current_index = None
 
-    def get_len(self):
-        key = list(self.sample_dict.keys())[-1]
-        return self.sample_dict[key]["end"]
-
     def __len__(self):
-        if not self.limit_samples is None:
-            return self.limit_samples
-        return self.get_len()
+        return len(self.samples)
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
         if worker_info is None:
             self.iter_start = 0
-            self.iter_end = self.get_len()
+            self.iter_end = len(self.samples)
         else:
-            per_worker = int(math.ceil(self.get_len() / float(worker_info.num_workers)))
+            per_worker = int(math.ceil(len(self.samples) / float(worker_info.num_workers)))
             self.iter_start = worker_info.id * per_worker
             self.iter_end = self.iter_start + per_worker
         self.current_index = self.iter_start
 
         # Get the first item so that worker is completely ready
         self.__getitem__(self.iter_start)
-
         return self
 
     def __next__(self):
@@ -346,28 +321,13 @@ class TerrainDataset(IterableDataset):
         return x
 
     def __getitem__(self, idx):
-        rel_idx = None
-        for file, info in self.sample_dict.items():
-            if idx >= info["start"] and idx < info["end"]:
-                rel_idx = idx - info["start"]
-                if self.current_file != file:
-                    b = self.get_blocks(file)
-                    self.current_blocks = b[info["mask"]]
-                    self.current_file = file
-                break
-
-        current = np.copy(self.current_blocks[rel_idx])
+        current = np.copy(self.samples[idx])
         current -= np.min(current)
 
         if self.normalize:
             current /= self.data_range
 
         adjusted = self.get_adjusted(current)
-        viewshed = self.viewshed(adjusted)
-
-        mask = np.isnan(viewshed).astype(np.uint8)
-        mask = torch.from_numpy(mask).float()
-
         adjusted = np.expand_dims(adjusted, axis=0)
         target = np.repeat(adjusted, self.out_channels, axis=0)
         target = torch.from_numpy(target).float()
@@ -375,7 +335,13 @@ class TerrainDataset(IterableDataset):
         if self.transform:
             target = self.transform(target)
 
-        return target, mask
+        if self.return_masks:
+            viewshed = self.viewshed(adjusted)
+            mask = np.isnan(viewshed).astype(np.uint8)
+            mask = torch.from_numpy(mask).float()
+            return target, mask
+
+        return target
 
     def blockshaped(self, arr, nside):
         """

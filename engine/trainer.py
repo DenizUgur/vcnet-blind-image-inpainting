@@ -60,11 +60,12 @@ class Trainer:
                                             observer_pad=self.opt.DATASET.SIZE // 4,
                                             randomize=self.opt.TRAIN.SHUFFLE,
                                             random_state=42,
+                                            return_masks=False,
                                             transform=self.transform)
         else:
             self.dataset = ImageFolder(root=self.opt.DATASET.ROOT, transform=self.transform)
 
-        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE and not self.opt.DATASET.NAME.lower() == "terrain", num_workers=self.opt.SYSTEM.NUM_WORKERS, pin_memory=True, drop_last=True)
+        self.image_loader = data.DataLoader(dataset=self.dataset, batch_size=self.opt.TRAIN.BATCH_SIZE, shuffle=self.opt.TRAIN.SHUFFLE, num_workers=self.opt.SYSTEM.NUM_WORKERS, pin_memory=True, drop_last=True)
 
         self.mask_generator = MaskGenerator(self.opt.MASK)
         self.mask_smoother = ConfidenceDrivenMaskLayer(self.opt.MASK.GAUS_K_SIZE, self.opt.MASK.SIGMA)
@@ -80,6 +81,7 @@ class Trainer:
         self.optimizer_discriminator = torch.optim.Adam(list(self.discriminator.parameters()) + list(self.patch_discriminator.parameters()), lr=self.opt.MODEL.D.LR, betas=self.opt.MODEL.D.BETAS)
         self.optimizer_joint = torch.optim.Adam(list(self.mpn.parameters()) + list(self.rin.parameters()), lr=self.opt.MODEL.JOINT.LR, betas=self.opt.MODEL.JOINT.BETAS)
 
+        self.num_epoch = 0
         self.num_step = self.opt.TRAIN.START_STEP
 
         if self.opt.TRAIN.START_STEP != 0 and self.opt.TRAIN.RESUME:  # find start step from checkpoint file name. TODO
@@ -95,11 +97,25 @@ class Trainer:
 
     def run(self):
         data_iterator = iter(self.image_loader)
-        while self.num_step < self.opt.TRAIN.NUM_TOTAL_STEP:
+        while self.num_step < self.opt.TRAIN.NUM_TOTAL_STEP and self.num_epoch < self.opt.TRAIN.NUM_TOTAL_EPOCH:
             self.num_step += 1
-            info = " [Step: {}/{} ({}%)] ".format(self.num_step, self.opt.TRAIN.NUM_TOTAL_STEP, 100 * self.num_step / self.opt.TRAIN.NUM_TOTAL_STEP)
+            self.num_epoch = self.num_step // len(self.dataset)
 
-            imgs, _ = next(data_iterator)
+            info = " [Epoch: {:,}/{:,} ({}%) Step: {:,}/{:,} ({}%)] ".format(
+                    self.num_epoch,
+                    self.opt.TRAIN.NUM_TOTAL_EPOCH,
+                    100 * self.num_epoch / self.opt.TRAIN.NUM_TOTAL_EPOCH,
+                    self.num_step,
+                    self.opt.TRAIN.NUM_TOTAL_STEP,
+                    100 * self.num_step / self.opt.TRAIN.NUM_TOTAL_STEP
+            )
+
+            try:
+                imgs = next(data_iterator)
+            except StopIteration:
+                data_iterator = iter(self.image_loader)
+                imgs = next(data_iterator)
+
             y_imgs = imgs.float().to(self.device)
             imgs = linear_scaling(imgs.float().to(self.device))
             batch_size, channels, h, w = imgs.size()

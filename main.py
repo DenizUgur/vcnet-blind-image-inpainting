@@ -50,10 +50,8 @@ if __name__ == '__main__':
 
     if cfg.MODEL.IS_TRAIN:
         trainer = Trainer(cfg) if not cfg.MODEL.RAINDROP_TUNE else RaindropTrainer(cfg)
-        try:
-            trainer.run()
-        except StopIteration:
-            print("All dataset has been consumed!")
+        trainer.run()
+        print("Training completed!")
     else:
         tester = Tester(cfg)
         if cfg.TEST.ABLATION:
