@@ -24,8 +24,8 @@ class Agent:
         agent_extent_bias="inverse_diagonal",
         recalculate_threshold=0.2,
     ) -> None:
-        self.start = start
-        self.goal = goal
+        self.start = (*start, world[start[1], start[0]])
+        self.goal = (*goal, world[goal[1], goal[0]])
         self.goal_in_sight = False
 
         # * Map related
@@ -96,6 +96,9 @@ class Agent:
         path = interpolate.splev(u, tck)
         path = np.array(path).T
         return path
+
+    def get_poly(self):
+        return self.__calc_poly()
 
     def __observe(self, poly):
         logger.info("Calculating current observation")

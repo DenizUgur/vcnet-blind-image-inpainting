@@ -43,8 +43,8 @@ if __name__ == "__main__":
     transform = lambda pos, dem: dem
 
     AGENT = Agent(
-        start=(5, 5, DEM[5, 5]),
-        goal=(500, 500, DEM[500, 500]),
+        start=(5, 5),
+        goal=(500, 200),
         local_size=LOCAL_SIZE,
         world=DEM,
         transform=transform,
@@ -52,18 +52,22 @@ if __name__ == "__main__":
     )
 
     while True:
+        poly = AGENT.get_poly()
         status = AGENT.forward()
         path = AGENT.get_path()
 
         if status == Status.REACHED:
             logger.success("Path reached")
+            break
 
         # ! Display results
         plt.imshow(DEM, cmap="terrain", extent=[0, SIZE, 0, SIZE], origin="lower")
         plt.plot(path[:, 0], path[:, 1], linewidth=2, c="r")
+        plt.plot(*poly.exterior.xy, c="black", linewidth=2)
         plt.show(block=False)
         plt.pause(0.1)
         plt.close()
 
-        if status == Status.REACHED:
-            break
+    plt.imshow(DEM, cmap="terrain", extent=[0, SIZE, 0, SIZE], origin="lower")
+    plt.plot(path[:, 0], path[:, 1], linewidth=2, c="r")
+    plt.show()
