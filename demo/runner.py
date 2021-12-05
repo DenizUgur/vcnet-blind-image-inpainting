@@ -3,7 +3,7 @@ import numpy as np
 from loguru import logger
 import matplotlib.pyplot as plt
 
-from core.safari.agent import Agent, Status
+from safari.core.agent import Agent, Status
 
 
 def create_world(size):
