@@ -20,7 +20,7 @@ class Viewshed:
         observer_pad=50,
         observer_steps=4,
         observer_view_angle=120,
-        data_range=None,
+        data_range=1,
     ):
         self.observer_height = observer_height / data_range
         self.observer_pad = observer_pad
